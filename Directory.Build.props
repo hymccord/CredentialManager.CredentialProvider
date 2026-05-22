@@ -6,4 +6,8 @@
 
     <UseArtifactsOutput>true</UseArtifactsOutput>
   </PropertyGroup>
+
+  <PropertyGroup Condition=" '$(CI)' == 'true' ">
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+  </PropertyGroup>
 </Project>
