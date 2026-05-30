@@ -1,22 +1,26 @@
 ﻿using System.Diagnostics;
 
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 using NuGet.Protocol.Plugins;
 
 namespace CredentialManager.CredentialProvider.RequestHandlers;
 
-internal abstract class RequestHandlerBase<TRequest, TResponse> : IRequestHandler
+internal abstract class RequestHandlerBase<TRequest, TResponse> : IMessageRequestHandler
     where TResponse : class
 {
+    private readonly IHostApplicationLifetime _hostApplicationLifetime;
 
-    protected RequestHandlerBase(ILogger logger)
+    protected RequestHandlerBase(ILogger logger, IHostApplicationLifetime hostApplicationLifetime)
     {
         Logger = logger;
+        _hostApplicationLifetime = hostApplicationLifetime;
     }
 
+    public abstract MessageMethod Method { get; }
 
-    public virtual CancellationToken CancellationToken { get; } = CancellationToken.None;
+    public virtual CancellationToken CancellationToken => _hostApplicationLifetime.ApplicationStopping;
 
     public IConnection? Connection { get; private set; }
 
@@ -59,7 +63,7 @@ internal abstract class RequestHandlerBase<TRequest, TResponse> : IRequestHandle
         }
         catch (Exception ex)
         {
-            bool cancellingDuringShutdown = ex is OperationCanceledException && Program.IsShuttingDown;
+            bool cancellingDuringShutdown = ex is OperationCanceledException && _hostApplicationLifetime.ApplicationStopping.IsCancellationRequested;
 
             if (cancellingDuringShutdown)
             {

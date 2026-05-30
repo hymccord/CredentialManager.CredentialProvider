@@ -5,6 +5,7 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageVersion Include="Meziantou.Framework.Win32.CredentialManager" Version="2.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.8" />
     <PackageVersion Include="Microsoft.Extensions.Logging" Version="10.0.8" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Debug" Version="10.0.8" />
     <PackageVersion Include="MinVer" Version="7.0.0" />

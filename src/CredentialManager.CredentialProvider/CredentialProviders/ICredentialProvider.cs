@@ -1,6 +1,6 @@
 ﻿using NuGet.Protocol.Plugins;
 
-namespace CredentialManager.CredentialProvider;
+namespace CredentialManager.CredentialProvider.CredentialProviders;
 
 internal interface ICredentialProvider : IDisposable
 {

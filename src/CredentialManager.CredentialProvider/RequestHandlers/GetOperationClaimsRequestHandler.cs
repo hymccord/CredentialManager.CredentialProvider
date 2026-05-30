@@ -1,4 +1,7 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using CredentialManager.CredentialProvider.CredentialProviders;
+
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 using NuGet.Protocol.Plugins;
 
@@ -14,13 +17,17 @@ internal class GetOperationClaimsRequestHandler : RequestHandlerBase<GetOperatio
 
     private readonly IReadOnlyCollection<ICredentialProvider> _credentialProviders;
 
-    public GetOperationClaimsRequestHandler(ILogger logger, IReadOnlyCollection<ICredentialProvider> credentialProviders)
-        : base(logger)
+    public GetOperationClaimsRequestHandler(ILogger<GetOperationClaimsRequestHandler> logger,
+        IEnumerable<ICredentialProvider> credentialProviders,
+        IHostApplicationLifetime hostApplicationLifetime)
+        : base(logger, hostApplicationLifetime)
     {
         ArgumentNullException.ThrowIfNull(credentialProviders);
 
-        _credentialProviders = credentialProviders;
+        _credentialProviders = [..credentialProviders];
     }
+
+    public override MessageMethod Method => MessageMethod.GetOperationClaims;
 
     protected override Task<GetOperationClaimsResponse?> HandleRequestAsync(GetOperationClaimsRequest? request)
     {

@@ -1,4 +1,7 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using CredentialManager.CredentialProvider.CredentialProviders;
+
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 using NuGet.Protocol.Plugins;
 
@@ -10,21 +13,16 @@ internal class GetAuthenticationCredentialsRequestHandler : RequestHandlerBase<G
     private readonly IReadOnlyCollection<ICredentialProvider> _credentialProviders;
     private readonly TimeSpan _progressReporterTimeSpan = TimeSpan.FromSeconds(2);
 
-    public GetAuthenticationCredentialsRequestHandler(ILogger logger,
-        IReadOnlyCollection<ICredentialProvider> credentialProviders)
-        : base(logger)
+    public GetAuthenticationCredentialsRequestHandler(ILogger<GetAuthenticationCredentialsRequestHandler> logger,
+        IEnumerable<ICredentialProvider> credentialProviders,
+        IHostApplicationLifetime hostApplicationLifetime)
+        : base(logger, hostApplicationLifetime)
     {
-        _credentialProviders = credentialProviders;
+        _credentialProviders = [..credentialProviders];
         //_cache = cache;
     }
 
-    public GetAuthenticationCredentialsRequestHandler(ILogger logger, 
-        IReadOnlyCollection<ICredentialProvider> credentialProviders, 
-        CancellationToken cancellationToken)
-        : this(logger, credentialProviders)
-    {
-        //_cache = GetCache(logger, cancellationToken);
-    }
+    public override MessageMethod Method => MessageMethod.GetAuthenticationCredentials;
 
     protected override async Task<GetAuthenticationCredentialsResponse?> HandleRequestAsync(GetAuthenticationCredentialsRequest? request)
     {
