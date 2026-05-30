@@ -51,6 +51,7 @@ public class Program
         builder.Services.AddSingleton<IPluginConnectionProvider>(sp => sp.GetRequiredService<LoggingPluginConnectionProvider>());
         builder.Services.AddSingleton<ICurrentProcessPluginFactory, CurrentProcessPluginFactory>();
 
+        builder.Services.AddTransient<IAuthUtil, AuthUtil>();
         builder.Services.AddTransient<ICredentialProvider, WindowsCredentialProvider>();
 
         builder.Services.AddTransient<IMessageRequestHandler, GetAuthenticationCredentialsRequestHandler>();

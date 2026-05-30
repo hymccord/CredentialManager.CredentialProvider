@@ -1,51 +1,131 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 using System.Runtime.Versioning;
 
+using Microsoft.Extensions.Logging;
+
 using NuGet.Protocol.Plugins;
 
 using MFW = Meziantou.Framework.Win32;
 
 namespace CredentialManager.CredentialProvider.CredentialProviders;
 
-internal sealed partial class WindowsCredentialProvider : ICredentialProvider
+internal sealed partial class WindowsCredentialProvider(ILogger<WindowsCredentialProvider> logger, IAuthUtil authUtil) : ICredentialProvider
 {
     public bool IsCachable => false;
 
-    public Task<bool> CanProvideCredentialAsync(Uri uri)
-        => Task.FromResult(OperatingSystem.IsWindowsVersionAtLeast(5, 1, 2600));
+    public async Task<bool> CanProvideCredentialAsync(Uri uri)
+    {
+        if (!OperatingSystem.IsWindowsVersionAtLeast(6, 0, 6000))
+        {
+            logger.LogDebug("Windows Credential Provider is not supported on this OS version.");
+            return false;
+        }
+
+        var invalidHosts = new[]
+        {
+            ".pkgs.vsts.me",
+            "pkgs.codedev.ms",
+            "pkgs.codeapp.ms",
+            ".pkgs.visualstudio.com",
+            "pkgs.dev.azure.com",
+        };
+
+        bool isInvalidHost = invalidHosts.Any(host => host.StartsWith(".")
+            ? uri.Host.EndsWith(host, StringComparison.OrdinalIgnoreCase)
+            : uri.Host.Equals(host, StringComparison.OrdinalIgnoreCase));
+        if (isInvalidHost)
+        {
+            logger.LogDebug("Matched well-known Azure DevOps Service host: {uri}.", uri.Host);
+            return false;
+        }
+
+        if (!string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+        {
+            logger.LogDebug("URI scheme is not HTTPS: {uri}.", uri);
+            return false;
+        }
+
+        var azDevOpsType = await authUtil.GetAzDevDeploymentTypeAsync(uri, CancellationToken.None).ConfigureAwait(false);
+        if (azDevOpsType == AzDevDeploymentType.OnPrem)
+        {
+            logger.LogDebug("Detected an on premise Azure DevOps Server.");
+            return true;
+        }
+
+        logger.LogDebug("{uri} is not a supported host for Windows Credential Provider.", uri);
+        return false;
+
+    }
 
     public void Dispose() { }
 
-    public Task<GetAuthenticationCredentialsResponse?> HandleRequestAsync(
+    public async Task<GetAuthenticationCredentialsResponse?> HandleRequestAsync(
         GetAuthenticationCredentialsRequest request,
         CancellationToken cancellationToken)
     {
-        GetAuthenticationCredentialsResponse? response = null;
-        
-        if (!OperatingSystem.IsWindowsVersionAtLeast(5, 1, 2600))
+        if (!OperatingSystem.IsWindowsVersionAtLeast(6, 0, 6000))
         {
-            response = new GetAuthenticationCredentialsResponse(
+            return new GetAuthenticationCredentialsResponse(
                 username: null,
                 password: null,
-                message: "CredentialManager.CredentialProvider is only available on Windows 5.1.2600 and later.",
+                message: "CredentialManager.CredentialProvider is only available on Windows 6.0.6000 and later.",
                 authenticationTypes: null,
                 responseCode: MessageResponseCode.Error
             );
         }
-        else
+
+        if (TryFindCredential(request.Uri, out var username, out var password))
         {
-           
-            bool success = TryFindCredential(request.Uri, out var username, out var password);
-            response = new GetAuthenticationCredentialsResponse(
+            return new GetAuthenticationCredentialsResponse(
                 username: username,
                 password: password,
                 message: null,
-                authenticationTypes: success ? ["Negotiate"] : null,
-                responseCode: success ? MessageResponseCode.Success : MessageResponseCode.NotFound
+                authenticationTypes: ["Negotiate"],
+                responseCode: MessageResponseCode.Success
             );
         }
 
-        return Task.FromResult<GetAuthenticationCredentialsResponse?>(response);
+        if (request.IsNonInteractive)
+        {
+            return new GetAuthenticationCredentialsResponse(
+                username: null,
+                password: null,
+                message: null,
+                authenticationTypes: null,
+                responseCode: MessageResponseCode.NotFound
+            );
+        }
+
+        var credential = await PromptForCredentialsAsync(request.Uri, cancellationToken).ConfigureAwait(false);
+
+        if (credential == null)
+        {
+            logger.LogWarning("User canceled credential prompt.");
+            return new GetAuthenticationCredentialsResponse(
+                username: null,
+                password: null,
+                message: "The user canceled the credential prompt.",
+                authenticationTypes: null,
+                responseCode: MessageResponseCode.Error
+            );
+        }
+
+        if (credential.CredentialSaved == MFW.CredentialSaveOption.Selected)
+        {
+            var authority = request.Uri.GetLeftPart(UriPartial.Authority);
+            MFW.CredentialManager.WriteCredential(applicationName: authority,
+                userName: credential.UserName,
+                secret: credential.Password,
+                persistence: MFW.CredentialPersistence.Enterprise);
+        }
+
+        return new GetAuthenticationCredentialsResponse(
+            username: credential.UserName,
+            password: credential.Password,
+            message: null,
+            authenticationTypes: ["Negotiate"],
+            responseCode: MessageResponseCode.Success
+        );
     }
 
     /// <summary>
@@ -81,6 +161,30 @@ internal sealed partial class WindowsCredentialProvider : ICredentialProvider
         }
 
         return false;
+    }
+
+    [SupportedOSPlatform("windows6.0.6000")]
+    private static Task<MFW.CredentialResult?> PromptForCredentialsAsync(Uri uri, CancellationToken cancellationToken)
+    {
+        var tcs = new TaskCompletionSource<MFW.CredentialResult?>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                var result = MFW.CredentialManager.PromptForCredentials(
+                    messageText: uri.GetLeftPart(UriPartial.Authority),
+                    captionText: "NuGet is requesting credentials.",
+                    saveCredential: MFW.CredentialSaveOption.Selected);
+                tcs.SetResult(result);
+            }
+            catch (Exception ex)
+            {
+                tcs.SetException(ex);
+            }
+        }, cancellationToken);
+
+        return tcs.Task;
     }
 
     /// <summary>
